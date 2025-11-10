@@ -1,0 +1,41 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-docker
+    restart: unless-stopped
+    volumes:
+      - ${HOME}/.ollama:/root/.ollama   # <- reuse existing models
+    #ports:
+    #  - "11434:11434"
+    #healthcheck:
+    #  test: ["CMD-SHELL", "printf '' >/dev/tcp/127.0.0.1/11434 || exit 1"]
+    #  interval: 10s
+    #  timeout: 2s
+    #  retries: 10
+    #  start_period: 5s
+
+  ai-app:
+      build: .
+      depends_on:
+        - ollama
+        #  condition: service_healthy
+      environment:
+        # values come from .env
+        - LOCAL_BASE_URL
+        - REMOTE_BASE_URL
+        - LOCAL_MODEL_NAME
+        - REMOTE_MODEL_NAME
+        - OPENROUTER_API_KEY
+      volumes:
+        - ./:/app
+      ports:
+        - "8501:8501"
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      # Streamlit health endpoint
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+        interval: 10s
+        timeout: 2s
+        retries: 30
+        start_period: 10s
