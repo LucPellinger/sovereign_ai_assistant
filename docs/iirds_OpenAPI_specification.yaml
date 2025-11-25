@@ -1,0 +1,2078 @@
+
+openapi: 3.0.1
+info:
+  title: iiRDS Request API
+  description: |
+    This OpenAPI specification describes the structure of a generic API for querying and retrieving [iiRDS RDF resources](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#class-definitions).
+    
+    Several endpoints are specified which, individually or in combination, cover the most common use cases for querying such resources.
+    For a higher degree of freedom in retrieving iirds RDF resources, additional endpoints are specified that can be optionally implemented to enable user-defined queries.
+  termsOfService: https://iirds.org
+  contact:
+    name: iiRDS consortium office
+    email: info@tekom.de
+  x-logo:
+    url: 'https://iirds.tekom.de/fileadmin/iiRDS_specification/20171020-0.9-rfc/images/logos/iiRDS.jpg'
+    altText: iiRDS logo
+  license:
+    name: Creative Commons Attribution-NoDerivatives 4.0
+    url: https://creativecommons.org/licenses/by/4.0/legalcode
+  version: 0.0.1
+externalDocs:
+  description: Find out more about iiRDS
+  url: https://iirds.org
+servers:
+  - url: http://localhost:8080
+    description: local development server
+paths:
+  /api/{apiversion}/resources:
+    post:
+      summary: Retrieve iiRDS RDF resources via a query
+      description: |
+        This endpoint returns the result of a query. Retrieve iiRDS RDF resources via a query
+        provided in the request body.
+
+        There are two alternative types of queries: iiRDS queries (`iirdsquery`) 
+        and native queries (`nativequery`). 
+
+        The type of the query is given in the request body in ``querytype``.
+
+        The iiRDS query is defined by a JSON schema. 
+        It allows predicate logic and hierarchical queries.
+
+        Native queries are specific to the implementing system and given just as
+        strings.
+
+        The result of a query is a JSON-LD or RDF-XML representation of the
+        iiRDS RDF resources as graph. It includes additional information
+        about the order of the results and their score (optional).
+
+        JSON-LD is the default representation format. The desired format can
+        be provided via URL query parameter ``format``.
+
+        There are two types of queries for resources: ``iirdsquery`` and ``nativequery``.
+        The type of the query is defined by the property ``querytype``. 
+        - ``iirdsquery`` uses a schema in JSON for queries as defined here. 
+        - ``nativequery`` is dependent on the implementor and is just represented by a string in the query language of the implementing system. 
+
+        An iiRDS query (``iirdsquery``) is a structured query according to this specification.
+
+        The abstract syntax of an iiRDS query is as follows (simplified notation):
+
+        ```
+          query            := context?, resource, resultProperties, orderBy
+          resource         := (id*,  type*, asResult?, content*, predicates?)+
+          predicates       := predicate+
+          predicate        := property, recurselevel?, (resource | value)*
+          value            := op?, type? literal+, language?
+          resultProperties := byType
+          byType           := <Map of type name to includeProperties>
+          includeProperties:= <property name>*
+          orderBy          := (property, direction?)+
+
+        ````
+
+        - ``context`` defines namespace mappings to be applied in the query.
+        - ``resource`` defines a search for a resource.
+          The resources  might be a member of the result list or not.
+          Sometimes referenced resources on deeper level are the 
+          desired results but not on top level.
+        - ``predicates`` defines criteria on properties of resources.
+        - ``recurselevel`` is only relevant in the case the property value
+          is a resource. When it is >1 the search will be continued from the 
+          referenced resource via the same property in a recursive manner. 
+          ``recurselevel`` defines the number of levels to follow (default: 1 - no recursion).
+      tags:
+        - iiRDS resources
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - in: query
+          name: offset
+          description: |
+            Defines the zero-based index of the initial result list from which results are returned.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - in: query
+          description: |
+            The query parameter identifies the request as a query requests. 
+            Currently there is no other usage for this endpoint.
+          name: query
+          schema:
+            description: Used to indicate a query for iiRDS RDF resources
+            type: boolean
+          allowEmptyValue: true
+          required: true
+        - in: query
+          name: format
+          description: |
+            The format (mime type) of the result.
+          schema:
+            type: string
+            enum: 
+              - application/ld+json
+              - application/rdf+xml
+            default: "application/ld+json"
+        - in: query
+          name: maxCount
+          description: | 
+            The maximum number of results to return. 
+          schema:
+            type: integer
+            minimum: 1
+            default: 100000
+      requestBody:
+        required: true
+        description: The query to be executed including ordering specifications.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/query'
+            examples:
+              iirds query:
+                summary: "iiRDS query"
+                value: 
+                  querytype: iirdsquery
+                  context:
+                    iirds: http://iirds.tekom.de/iirds#
+                    pifan: https://www.i4icm.de/pifan#
+                  resultProperties: {}
+                  resource:
+                    - type:
+                        - iirds:InformationUnit
+                      asResult: true
+                      predicates:
+                        iirds:relates-to-product-feature:
+                          - resource:
+                              id: 
+                                - pifan:SpeedAdjustment
+                              asResult: true
+                        iirds:language:
+                          - value:
+                              literal: 
+                                - 'en'
+                        iirds:version:
+                          - value:
+                              op: '>'
+                              literal: 
+                                - '1'
+              nativequery:
+                summary: A native query defined by the implementor
+                value:
+                  querytype: nativequery
+                  query: "SOME QUERY IN THE NATVIE LANGUAGE OF THE SYSTEM"
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/queryResult'
+            application/rdf+xml:
+              schema: 
+                $ref: "#/components/schemas/queryResult-RDF"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/schema:
+    get:
+      tags:
+        - iiRDS resources
+      summary: Retrieve the iiRDS schema
+      description:
+        This endpoint returns the iiRDS RDF schema.
+        The response of this endpoint contains the classes of the [iiRDS Core RDF Schema](https://iirds.org/fileadmin/downloads/documents/rdfs/iirds-core.rdf)
+        along with any other [iiRDS extensions](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#iirds-domains-and-proprietary-extensions)
+        used within the system.
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                  '@context':
+                    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                    rdfs: http://www.w3.org/2000/01/rdf-schema#
+                    dcterms: http://purl.org/dc/terms/
+                    xsd: http://www.w3.org/2001/XMLSchema#
+                    schema: http://schema.org/
+                    dc11: http://purl.org/dc/elements/1.1/
+                    vcard: http://www.w3.org/2006/vcard/ns#
+                    iirds: http://iirds.tekom.de/iirds#
+                  '@graph':
+                    - "@id": http://iirds.tekom.de/iirds#Document
+                      "@type": rdfs:Class
+                      http://iirds.tekom.de/iirds#description:
+                      - "@language": en
+                        "@value": A document consists of one or more files. It can consist of topics.
+                          The resource is either a blank node (when there is no file representing the
+                          document) or a file in the iiRDS package.
+                      - "@language": en
+                        "@value": 'IRI: required'
+                      rdfs:comment:
+                        "@language": en
+                        "@value": information unit that consists of an ordered set of information intended
+                          by the sender to be regarded as an entity
+                      rdfs:label:
+                      - "@language": de
+                        "@value": Dokument
+                      - "@language": en
+                        "@value": document
+                      rdfs:subClassOf:
+                        "@id": http://iirds.tekom.de/iirds#InformationUnit
+                    - "@id": http://iirds.tekom.de/iirds#DocumentType
+                      "@type": rdfs:Class
+                      http://iirds.tekom.de/iirds#description:
+                      - "@language": en
+                        "@value": Document types define the intended purpose of a document.
+                      - "@language": en
+                        "@value": 'IRI: required'
+                      rdfs:comment:
+                        "@language": en
+                        "@value": type of information arranged in a document defined with respect to its
+                          specified purpose, function, and form of presentation
+                      rdfs:label:
+                      - "@language": de
+                        "@value": Dokumentart
+                      - "@language": en
+                        "@value": document type
+                      rdfs:subClassOf:
+                        "@id": http://iirds.tekom.de/iirds#InformationType
+                    - "@id": http://iirds.tekom.de/iirds#DocumentationMetadata
+                      "@type": rdfs:Class
+                      http://iirds.tekom.de/iirds#description:
+                        "@language": en
+                        "@value": Not intended to be used directly. Use the subclasses instead.
+                      rdfs:comment:
+                        "@language": en
+                        "@value": information that describes the context to which iiRDS resources apply
+                      rdfs:label:
+                      - "@language": de
+                        "@value": Metadaten der Dokumentation
+                      - "@language": en
+                        "@value": documentation metadata
+                      rdfs:subClassOf:
+                        "@id": http://iirds.tekom.de/iirds#iirdsDomainEntity
+                    - "@id": http://iirds.tekom.de/iirds#DownTime
+                      "@type": rdfs:Class
+                      http://iirds.tekom.de/iirds#description:
+                      - "@language": en
+                        "@value": ''
+                      - "@language": en
+                        "@value": 'IRI: optional'
+                      rdfs:comment:
+                        "@language": en
+                        "@value": period of time during which an item is not in condition to perform its
+                          intended function
+                      rdfs:label:
+                      - "@language": de
+                        "@value": Stillstandzeit
+                      - "@language": en
+                        "@value": down time
+                      rdfs:subClassOf:
+                        "@id": http://iirds.tekom.de/iirds#PlanningTime
+                    - "@id": http://iirds.tekom.de/iirds#Topic
+                      "@type": rdfs:Class
+                      http://iirds.tekom.de/iirds#description:
+                      - "@language": en
+                        "@value": The resource of a topic is a file in the iiRDS package.
+                      - "@language": en
+                        "@value": 'IRI: required'
+                      rdfs:comment:
+                        "@language": en
+                        "@value": information unit that covers a single subject
+                      rdfs:label:
+                      - "@language": de
+                        "@value": Topic
+                      - "@language": en
+                        "@value": topic
+                      rdfs:subClassOf:
+                        "@id": http://iirds.tekom.de/iirds#InformationUnit
+                    - "@id": http://iirds.tekom.de/iirds#TopicType
+                      "@type": rdfs:Class
+                      http://iirds.tekom.de/iirds#description:
+                      - "@language": en
+                        "@value": Possible types include task, learning, and concept. Information units
+                          that represent topics may have one or more has-topic-type properties that define
+                          the topic's information type. Topics without a has-topic-type property are generic
+                          topics, with no specific type.
+                      - "@language": en
+                        "@value": 'IRI: required'
+                      rdfs:comment:
+                        "@language": en
+                        "@value": type of information determined according to functional principles
+                      rdfs:label:
+                      - "@language": de
+                        "@value": Topictyp
+                      - "@language": en
+                        "@value": topic type
+                      rdfs:subClassOf:
+                        "@id": http://iirds.tekom.de/iirds#InformationType
+                    - "@id": http://iirds.tekom.de/iirds#Troubleshooting
+                      "@type": rdfs:Class
+                      http://iirds.tekom.de/iirds#description:
+                      - "@language": en
+                        "@value": Typical troubleshooting topics contain sections with a description of
+                          the system's behavior or symptom, the cause for the error, and a remedy for
+                          the error.
+                      - "@language": en
+                        "@value": 'IRI: required'
+                      rdfs:comment:
+                        "@language": en
+                        "@value": topic type that provides an explanation for symptoms, diagnosis, and
+                          resolution of problems
+                      rdfs:label:
+                      - "@language": de
+                        "@value": Störungsbeseitigung
+                      - "@language": en
+                        "@value": 'troubleshooting '
+                      rdfs:subClassOf:
+                        "@id": http://iirds.tekom.de/iirds#TopicType
+              schema:
+                type: object
+                title: iiRDS schema
+                description: |
+                  The response object is of format JSON-LD and includes the [iiRDS Core RDF Schema](https://iirds.org/fileadmin/downloads/documents/rdfs/iirds-core.rdf)
+                  along with any other
+                  [iiRDS extension](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#iirds-domains-and-proprietary-extensions) implemented on the target system.
+                properties:
+                  '@context':
+                    type: object
+                  '@graph':
+                    type: array
+                    items:
+                      type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/{iri}:
+    get:
+      tags:
+        - iiRDS resources
+      summary: Retrieve an iiRDS resource by IRI
+      description: |
+        This endpoint takes the IRI of an [iiRDS RDF resource](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#class-definitions)
+        as a parameter and returns properties of that resource in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For that, properties of blank nodes must always be fully resolved.
+        This requires for recursive querying whenever a blank node is available as an object resource.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+              example:
+                  '@context':
+                    iirds: http://iirds.tekom.de/iirds#
+                    iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                    iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                    rdfs: http://www.w3.org/2000/01/rdf-schema#
+                    schema: https://schema.org/
+                    vcard: http://www.w3.org/2006/vcard/ns#
+                    xsd: http://www.w3.org/2001/XMLSchema#
+                  '@graph':
+                  - '@id': http://myCompany.com/versions/io_1/de/1
+                    '@type': iirds:Topic
+                    iirds:title: Intended Use
+                    iirds:language: en
+                    iirds:has-subject:
+                      - '@id': iirds:IntendedUse
+                        '@type': iirds:InformationSubject
+                    iirds:has-topic-type:
+                      - '@id': iirds:GenericConcept
+                        '@type': iirds:TopicType
+                    iirds:is-applicable-for-document-type:
+                      - '@id': iirds:OperatingInstructions
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:RepairInstructions
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:QuickGuide
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:MaintenanceInstructions
+                        '@type': iirds:DocumentType
+                    iirds:is-part-of-package:
+                      - '@id': http://myCompany.com/iiRDS-parent
+                        '@type': iirds:Package
+                    iirds:relates-to-component:
+                      - '@id': https://www.i4icm.de/pifan#PIFan
+                        '@type': iirds:Component
+                    iirds:relates-to-product-variant:
+                      - '@id': https://www.i4icm.de/pifan#X5-DH2
+                        '@type': iirds:ProductVariant
+                    iirds:relates-to-qualification:
+                      - '@id': https://www.i4icm.de/pifan#Operator
+                        '@type': iirds:Qualification
+                    iirds:has-rendition:
+                    - '@type': iirds:Rendition
+                      '@id': '_:32547643564'
+                      iirds:format: application/xhtml+xml
+                      iirds:source: content/2_ProductDescription/2_1_IntendedUse.xhtml
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/informationunits/topics/{iri}:
+    get:
+      tags:
+        - iiRDS resources
+      summary: Retrieve properties of an iirds:Topic
+      description: |
+        This endpoint takes the IRI of an [iirds:Topic](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_Topic)
+        as a parameter and returns properties of that topic in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For that, properties of blank nodes must always be fully resolved.
+        This requires for recursive querying whenever a blank node is available as an object resource.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+              example:
+                  '@context':
+                    iirds: http://iirds.tekom.de/iirds#
+                    iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                    iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                    rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                    rdfs: http://www.w3.org/2000/01/rdf-schema#
+                    schema: https://schema.org/
+                    vcard: http://www.w3.org/2006/vcard/ns#
+                    xsd: http://www.w3.org/2001/XMLSchema#
+                  '@graph':
+                  - '@id': http://myCompany.com/versions/io_1/de/1
+                    '@type': iirds:Topic
+                    iirds:title: Intended use
+                    iirds:language: en
+                    iirds:has-subject:
+                      - '@id': iirds:IntendedUse
+                        '@type': iirds:InformationSubject
+                    iirds:has-topic-type:
+                      - '@id': iirds:GenericConcept
+                        '@type': iirds:TopicType
+                    iirds:is-applicable-for-document-type:
+                      - '@id': iirds:OperatingInstructions
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:RepairInstructions
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:QuickGuide
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:MaintenanceInstructions
+                        '@type': iirds:DocumentType
+                    iirds:is-part-of-package:
+                      - '@id': http://myCompany.com/iiRDS-parent
+                        '@type': iirds:Package
+                    iirds:relates-to-component:
+                      - '@id': https://www.i4icm.de/pifan#PIFan
+                        '@type': iirds:Component
+                    iirds:relates-to-product-variant:
+                      - '@id': https://www.i4icm.de/pifan#X5-DH2
+                        '@type': iirds:ProductVariant
+                    iirds:relates-to-qualification:
+                      - '@id': https://www.i4icm.de/pifan#Operator
+                        '@type': iirds:Qualification
+                    iirds:has-rendition:
+                      - '@type': iirds:Rendition
+                        'id': '_:736543474854342'
+                        iirds:format: application/xhtml+xml
+                        iirds:source: content/2_ProductDescription/2_1_IntendedUse.xhtml
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/informationunits/fragments/{iri}:
+    get:
+      tags:
+        - iiRDS resources
+      summary: Retrieve properties of an iirds:Fragment
+      description: |
+        This endpoint takes the IRI of an [iirds:Fragment](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_Topic)
+        as a parameter and returns properties of that fragment in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For that, properties of blank nodes must always be fully resolved.
+        This requires for recursive querying whenever a blank node is available as an object resource.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+              example:
+                '@context':
+                  iirds: http://iirds.tekom.de/iirds#
+                  iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                  iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                  rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                  rdfs: http://www.w3.org/2000/01/rdf-schema#
+                  schema: https://schema.org/
+                  vcard: http://www.w3.org/2006/vcard/ns#
+                  xsd: http://www.w3.org/2001/XMLSchema#
+                '@graph':
+                  - '@id': http://metadata.example.com/iirds/fragments/E01/languages/en/versions/1
+                    '@type': iirds:Fragment
+                    iirds:title: Event code E01
+                    iirds:language: en
+                    iirds:has-subject:
+                      - '@id': iirds:IntendedUse
+                        '@type': iirds:InformationSubject
+                    iirds:has-topic-type:
+                      - '@id': iirds:GenericConcept
+                        '@type': iirds:TopicType
+                    iirds:is-applicable-for-document-type:
+                      - '@id': iirds:OperatingInstructions
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:RepairInstructions
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:QuickGuide
+                        '@type': iirds:DocumentType
+                      - '@id': iirds:MaintenanceInstructions
+                        '@type': iirds:DocumentType
+                    iirds:is-part-of-package:
+                      - '@id': http://myCompany.com/iiRDS-parent
+                        '@type': iirds:Package
+                    iirds:relates-to-component:
+                      - '@id': https://www.i4icm.de/pifan#PIFan
+                        '@type': iirds:Component
+                    iirds:relates-to-product-variant:
+                      - '@id': https://www.i4icm.de/pifan#X5-DH2
+                        '@type': iirds:ProductVariant
+                    iirds:relates-to-qualification:
+                      - '@id': https://www.i4icm.de/pifan#Operator
+                        '@type': iirds:Qualification
+                    iirds:has-rendition:
+                      - '@type': iirds:Rendition
+                        'id': '_:475634534667'
+                        iirds:format: application/xhtml+xml
+                        iirds:source: content/07_Troubleshooting.html
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/informationunits/documents/{iri}:
+    get:
+      tags:
+        - iiRDS resources
+      summary: Retrieve properties of an iirds:Document
+      description: |
+        This endpoint takes the IRI of an [iirds:Document](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_Document)
+        as a parameter and returns properties of that document in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For that, properties of blank nodes must always be fully resolved.
+        This requires for recursive querying whenever a blank node is available as an object resource.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+              example:
+                '@context':
+                  iirds: http://iirds.tekom.de/iirds#
+                  iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                  iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                  rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                  rdfs: http://www.w3.org/2000/01/rdf-schema#
+                  schema: https://schema.org/
+                  vcard: http://www.w3.org/2006/vcard/ns#
+                  xsd: http://www.w3.org/2001/XMLSchema#
+                '@graph':
+                  - '@id': http://metadata.example.com/iirds/fragments/E01/languages/en/versions/1
+                    '@type': iirds:Fragment
+                    iirds:title: Intended Use
+                    iirds:language: en
+                    iirds:has-subject:
+                      - '@id': iirds:IntendedUse
+                        '@type': iirds:InformationSubject
+                    iirds:has-topic-type:
+                      - '@id': iirds:GenericConcept
+                        '@type': iirds:TopicType
+                    iirds:is-part-of-package:
+                      - '@id': http://myCompany.com/iiRDS-parent
+                        '@type': iirds:Package
+                    iirds:relates-to-product-variant:
+                      - '@id': https://www.i4icm.de/pifan#X5-DH2
+                        '@type': iirds:ProductVariant
+                    iirds:relates-to-qualification:
+                      - '@id': https://www.i4icm.de/pifan#Operator
+                        '@type': iirds:Qualification
+                    iirds:has-rendition:
+                        '@type': iirds:Rendition
+                        'id': '_:475634534667'
+                        iirds:format: application/xhtml+xml
+                        iirds:source: content/07_Troubleshooting.html
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/informationunits/packages/{iri}:
+    get:
+      tags:
+        - iiRDS resources
+      summary: Retrieve properties of an iirds:Package
+      description: |
+        This endpoint takes the IRI of an [iirds:Package](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_Document) as a parameter and returns properties of that Package in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For that, properties of blank nodes must always be fully resolved.
+        This requires for recursive querying whenever a blank node is available as an object resource.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+              example:
+                '@context':
+                  iirds: http://iirds.tekom.de/iirds#
+                  iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                  iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                  rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                  rdfs: http://www.w3.org/2000/01/rdf-schema#
+                  schema: https://schema.org/
+                  vcard: http://www.w3.org/2006/vcard/ns#
+                  xsd: http://www.w3.org/2001/XMLSchema#
+                '@graph':
+                  - '@id': http://myCompany.com/iiRDS-parent
+                    '@type': iirds:Package
+                    iirds:iiRDSVersion: '1.1'
+                    iirds:has-rendition:
+                      '@type': iirds:Rendition
+                      'id': '_:657787543325'
+                      iirds:format: application/iirds+zip
+                      iirds:source: nested-package.iirds
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/informationunits/packages/{iri}/files/{iiRDSPackageFilePath}:
+    get:
+      tags:
+        - iiRDS package
+      summary: Retrieve a specific file from an iiRDS package
+      description: |
+        This endpoint takes the IRI of an [iirds:Package](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#dfn-iirds-package)
+        and a file path relative to the root of the corresponding [iiRDS container](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#iirds-container)
+        as parameters and returns the corresponding file.
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+        - in: path
+          name: iiRDSPackageFilePath
+          description: |
+              A file path relative to the root of the [iiRDS package](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#iirds-container) which corresponds to the iiRDS package provided with ``{iri}`` parameter.
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: |
+            Successful operation. The body contains the content of the file.
+          content:
+            '*/*':
+              schema: 
+                description: The requested file.
+                type: string
+                format: binary
+              example: ... content of the rquested file ...
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/informationunits/{iri}/renditions/{mimetype}/content:
+    get:
+      tags:
+        - Rendition content
+      summary: Retrieve the content (rendition) of a given iirds:InformationUnit in a specific format
+      description: |
+        This endpoint takes the IRI of an [iirds:InformationUnit](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_Package) and a ``mimetype`` (target format) as parameters and returns the content of that [iirds:InformationUnit](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_Package) in the specified format in the body.
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+        - $ref: '#/components/parameters/mimetype'
+      responses:
+        '200':
+          description: |
+            Successful operation.
+            The request body contains the content of the rendition as it is provided 
+            in the [iirds:Package](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#dfn-iirds-package) the information unit belongs to.
+          content:
+            "*/*": 
+              schema:
+                description: The requested file.
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/package/{iri}/content:
+    get:
+      tags:
+        - iiRDS package
+      summary: Retrieve an iiRDS Container as ZIP archive
+      description: |
+        This endpoint takes the IRI of an [iirds:Package](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#dfn-iirds-package) as parameter and returns the content of the corresponding [iiRDS container](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#iirds-container) as a ZIP archive (application/iirds+zip).
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            "application/iirds+zip": 
+              schema:
+                description: The requested iiRDS pacakge zip file.
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/informationunits/{iri}/directorynodes:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve properties for all iirds:DirectoryNode that belong to a given iirds:InformationUnit
+
+      description: |
+        This endpoint takes the IRI of an [iirds:InformationUnit](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_InformationUnit)
+        as a parameter and returns properties of all [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) related to that iirds:InformationUnit in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': _:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                        iirds:has-first-child:
+                          '@id': _:N3267e132c2f948bca37ea945695c9a8b
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/directorynodes/{iri}/roots:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve properties for all root level iirds:DirectoryNodes of a given iirds:DirectoryNode
+      description: |
+        This endpoint takes the IRI of an [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode)
+        as a parameter and returns properties of all [root level iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#hierarchical-navigation) related to that iirds:InformationUnit in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+
+        The root nodes can be filtered by the [iirds:DirectoryNodeType](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNodeType) as a parameter.
+
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+        - $ref: '#/components/parameters/directorynodetype'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': _:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                        iirds:has-first-child:
+                          '@id': _:N3267e132c2f948bca37ea945695c9a8b
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/directorynodes/{iri}:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve properties and object resources for an iirds:DirectoryNode
+      description: |
+        This endpoint takes the IRI of an [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode)
+        as a parameter and returns properties of that directory node in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+        
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': _:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                        iirds:has-first-child:
+                          '@id': _:N3267e132c2f948bca37ea945695c9a8b
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/directorynodes/{iri}/children:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve properties for all children of a given iirds:DirectoryNode
+      description: |
+        This endpoint takes the IRI of an [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode)
+        as a parameter and returns properties of all child [iirds:DirectoryNodes](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+        
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': _:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                        iirds:has-first-child:
+                          '@id': _:N3267e132c2f948bca37ea945695c9a8b
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/directorynodes/{iri}/parents:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve properties for all parents of a given iirds:DirectoryNode
+      description: |
+        This endpoint takes the IRI of an [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode)
+        as a parameter and returns properties of all parent [iirds:DirectoryNodes](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+        
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': _:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                        iirds:has-first-child:
+                          '@id': _:N3267e132c2f948bca37ea945695c9a8b
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/directorynodes/{iri}/previous:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve properties for the previous sibling iirds:DirectoryNode of a given iirds:DirectoryNode
+      description: |
+        This endpoint takes the IRI of an [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode)
+        as a parameter and returns properties of the previous sibling [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+        
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': _:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                        iirds:has-first-child:
+                          '@id': _:N3267e132c2f948bca37ea945695c9a8b
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/directorynodes/{iri}/next:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve properties for the following sibling iirds:DirectoryNode of a given iirds:DirectoryNode
+      description: |
+        This endpoint takes the IRI of an [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode)
+        as a parameter and returns properties of the following sibling [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+        
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': _:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                        iirds:has-first-child:
+                          '@id': _:N3267e132c2f948bca37ea945695c9a8b
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+  /api/{apiversion}/resources/directorynodes/{iri}/trees:
+    get:
+      tags:
+        - iiRDS directory node
+      summary: Retrieve directory node trees of iirds:DirectoryNodes
+      description: |    
+        This endpoint takes the IRI of an [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode)
+        as a parameter and returns the whole directory node trees of [iirds:DirectoryNodes](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode), in which the given [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) is included via [iirds:has-next-sibling](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfrelations_core_has-next-sibling) or [iirds:has-first-child](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfrelations_core_has-first-child) relations starting with the root [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) in [JSON-LD format](https://w3c.github.io/json-ld-syntax/).
+        
+        *Notice: iiRDS allows various resources to be available in the form of blank nodes.
+        A blank node can not be queried by IRI due to not being identified by such.
+        For [iirds:DirectoryNode](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNode) to be retrievable and requestable, it is necessary that IRIs are assigned to these nodes. 
+        As a fallback implementors can choose to generated IRIs in the case they were not present in the original iiRDS packages.*
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - $ref: '#/components/parameters/iri'
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/ld+json:
+              example:
+                    '@context':
+                      iirds: http://iirds.tekom.de/iirds#
+                      iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+                      iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+                      rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+                      rdfs: http://www.w3.org/2000/01/rdf-schema#
+                      schema: https://schema.org/
+                      vcard: http://www.w3.org/2006/vcard/ns#
+                      xsd: http://www.w3.org/2001/XMLSchema#
+                    '@graph':
+                      - '@id': iirds:N11ccfca5fe9541b0b294fc8ff0ae2c11
+                        '@type': iirds:DirectoryNode
+                        iirds:has-directory-structure-type:
+                          '@id': iirds:TableOfContents
+                          '@type': iirds:DirectoryNodeType
+                        iirds:has-first-child:
+                          '@id': iirds:N3267e132c2f948bca37ea945695c9a8b
+                          '@type': iirds:DirectoryNode
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1
+                          '@type': iirds:InformationUnit
+                        rdfs:label:
+                          '@language': en
+                          '@value': PI-FAN Operating Manual
+                      - '@id': iirds:N3267e132c2f948bca37ea945695c9a8b
+                        '@type': iirds:DirectoryNode
+                        iirds:has-first-child:
+                          '@id': iirds:N3267e132c234575
+                          '@type': iirds:DirectoryNode
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/21
+                          '@type': iirds:InformationUnit
+                        rdfs:label:
+                          '@language': en
+                          '@value': Maintenance
+                      - '@id': iirds:N3267e132c234575
+                        '@type': iirds:DirectoryNode
+                        iirds:relates-to-information-unit:
+                          '@id': http://myCompany.com/versions/io_1/de/1243
+                          '@type': iirds:InformationUnit
+                        rdfs:label:
+                          '@language': en
+                          '@value': Clean the rotor
+              schema:
+                $ref: '#/components/schemas/JsonLdResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'    
+  /api/{apiversion}/sparql:
+    post:
+      summary: Retrieve results of a SPARQL query 
+      description: |
+        This endpoint takes a [SPARQL](https://w3c.github.io/sparql-query/spec/) query string provided
+        with the requestBody of the POST request and runs the query on the SPARQL query engine of the system the API is implemented on and returns the result of the query.
+
+        *NOTICE: The implementation of this endpoint is optional. This endpoint can only be implemented when the system on which this API is implemented on supports SPARQL.*
+      tags:
+        - SPARQL
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+        - in: query
+          name: queryType
+          description: |
+              Used to indicate the query type of the SPARQL query.
+              Only `select` is supported.
+          schema:
+            type: string
+            enum:
+              - select
+          required: true
+        - in: query
+          name: queryResultFormat
+          description: |
+              The result format in which the results are to be returned.
+
+              *NOTICE: This parameter is only allowed in in conjunction with ``select`` parameter*
+          schema:
+            type: string
+            description: |
+              Must be one of the specified SPARQL query result formats:
+                - JSON
+                - XML
+                - CSV
+                - TSV
+            enum:
+              - JSON
+              - CSV
+              - TSV
+              - XML
+          required: false
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              description: |
+                A SPARQL query complying with [SPARQL specification](https://w3c.github.io/sparql-query/spec/) and the query type
+                provided as query parameter with the request.
+            example: |
+              # Select topics about cleaning for a specifc product and component
+ 
+              PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+              PREFIX iirds: <http://iirds.tekom.de/iirds#>
+ 
+              SELECT ?topic WHERE {
+                ?topic iirds:relates-to-product-variant <https://www.i4icm.de/pifan#pifan:X5-DH2>
+                ?topic iirds:relates-to-component <https://www.i4icm.de/pifan#pifan:Rotor>
+                ?iirds iirds:relates-to-product-lifecycle-phase <http://iirds.tekom.de/iirds/domain/machinery#cleaning>
+              }
+              LIMIT 10
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/json:
+              example:
+                - head:
+                    vars: 
+                      - topic
+                - results:
+                  - bindings:
+                    - topic:
+                        type: uri
+                        value: urn:uuid:64792352-b96f-452a-90d8-5283515c7fc2
+              schema:
+                $ref: '#/components/schemas/sparqlJSONResult'
+            application/xml:
+              example: |
+                <sparql xmlns="http://www.w3.org/2005/sparql-results#"
+                  xmlns:its="http://www.w3.org/2005/11/its" 
+                  its:version="2.0">
+                  <head>
+                    <variable name="topic"/>
+                  </head>
+
+                  <results>
+                    <result>
+                      <binding name="topic"> urn:uuid:64792352-b96f-452a-90d8-5283515c7fc2 </binding>
+                    </result>
+                  </results>
+                </sparql>  
+              schema:
+                $ref: '#/components/schemas/sparqlXMLResult' 
+            text/csv:
+              example: |
+                topic
+                "urn:uuid:64792352-b96f-452a-90d8-5283515c7fc2"
+              schema:
+                $ref: '#/components/schemas/sparqlCSVResult'
+            text/tsv:
+              example: |
+                ?topic
+                <urn:uuid:64792352-b96f-452a-90d8-5283515c7fc2>
+              schema:
+                $ref: '#/components/schemas/sparqlTSVResult'   
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'
+  /api/{apiversion}/features:
+    get:
+      summary: Retrieve supported API features
+
+      description: |       
+        Some features of this API are optional. To clarify which features are part of the API implementation, 
+        this endpoint provides a list of supported features.
+        
+        **Mapping between IDs and endpoints:**
+        | Return Value        |   Endpoint   |
+        | -----------         | -----------  |
+        | query.sparql.select | /api/{apiversion}/sparql?select       |
+        | query.native        | /api/{apiversion}/resources?query + ``querytype: nativequery`` in requestBody     |
+      tags:
+        - Administration
+      parameters:
+        - $ref: '#/components/parameters/apiversion'
+      responses:
+        '200':
+          description: |
+            Successful operation.
+          content:
+            application/json:
+              example:
+                - 'query.sparql.select'
+                - 'query.native'
+              schema:
+                type: array
+                items:
+                  type: string
+                  enum:
+                    - 'query.sparql.select'
+                    - 'query.native'    
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServiceNotAvailable'          
+components:
+  parameters:
+    apiversion:
+      name: apiversion
+      in: path
+      description: | 
+        Version of the API. The version is a semantic version number, prefixed by ``v``, 
+        see [Semantic Versioning](https://semver.org/).
+
+        Examples: ``v1.0.0``, ``v11.0.1``
+
+        The applicable version number is identical to the version of the specification.
+        When a new version of this specification gets available, implementors are encouraged
+        to keep support for the old version(s) and add support for the new version.
+
+      required: true
+      schema:
+        type: string
+    iri:
+      name: iri
+      in: path
+      description: IRI of an iiRDS resource
+      required: true
+      schema:
+        type: string
+    directorynodetype:
+      name: directorynodetype
+      in: query
+      description: 'Filter result by [iirds:DirectoryNodeType](https://www.iirds.org/fileadmin/iiRDS_specification/20231110-1.2-release/index.html#rdfclasses_core_DirectoryNodeType) of the root node.'
+      required: false
+      schema:
+        type: string
+    query:
+      name: query
+      in: query
+      description: true or false
+      required: true
+      schema:
+        type: boolean
+    mimetype:
+      name: mimetype
+      in: path
+      description: mimetype (target format) of the response
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Invalid parameters provided with request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            statusCode: 400
+            error: Invalid parameters provided with request.
+    NotFound:
+      description: The requested resource could not be found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            statusCode: 404
+            error: The requested resource could not be found.
+    ServiceNotAvailable:
+      description: INTERNAL SERVER ERROR – Service not available (contact supplier of the API)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/error'
+          example:
+            statusCode: 500
+            error: An internal server error occurred
+  schemas:
+    JsonLdResult:
+      type: object
+      description: |
+        Refer to [JSON-LD](https://w3c.github.io/json-ld-syntax/)
+    error:
+      type: object
+      properties:
+        type:
+          type: string
+          description: 'According to RFC9457: A JSON string containing a URI reference that identifies the problem type. Consumers MUST use the "type" URI (after resolution, if necessary) as the problem type''s primary identifier. When this member is not present, its value is assumed to be "about:blank".'
+        status:
+          type: integer
+          minimum: 400
+          description: 'According to RFC9457: A JSON number indicating the HTTP status code ([HTTP], Section 15) generated by the origin server for this occurrence of the problem. The "status" member, if present, is only advisory; it conveys the HTTP status code used for the convenience of the consumer. Generators MUST use the same status code in the actual HTTP response, to assure that generic HTTP software that does not understand this format still behaves correctly. See Section 5 for further caveats regarding its use. Consumers can use the status member to determine what the original status code used by the generator was when it has been changed (e.g., by an intermediary or cache) and when a message''s content is persisted without HTTP information. Generic HTTP software will still use the HTTP status code.'
+        title:
+          type: string
+          description: 'According to RFC9457: A JSON string containing a short, human-readable summary of the problem type. It SHOULD NOT change from occurrence to occurrence of the problem, except for localization (e.g., using proactive content negotiation; see [HTTP], Section 12.1). The "title" string is advisory and is included only for users who are unaware of and cannot discover the semantics of the type URI (e.g., during offline log analysis).'
+        detail:
+          type: string
+          description: 'According to RFC9457: A JSON string containing a human-readable explanation specific to this occurrence of the problem. The "detail" string, if present, ought to focus on helping the client correct the problem, rather than giving debugging information. Consumers SHOULD NOT parse the "detail" member for information; extensions are more suitable and less error-prone ways to obtain such information.'
+        instance:
+          type: string
+          description: 'According to RFC9457: A URI reference that identifies the specific occurrence of the problem. It may or may not yield further information if dereferenced.'
+    context:
+      description: |
+        Defines prefixes for IRIs. Mappings consist of a  prefix as key and a full IRI.
+        The namespaces prefixes can be used in queries wherever an IRI (id) is applicable, e.g. in ``id``, ``type``.
+        The IRI value gets expanded by replacing the prefix appended with ":" by the 
+        mapped value. If the IRI value starts with two slashes ("//") behind the prefix, substitution
+        must not be applied. 
+
+        The behavior is analogous to compact IRI expansion based on `@context` object in JSON-LD, 
+        see [4.1.6 Compact IRIs](https://www.w3.org/TR/json-ld11/#compact-iris).
+
+      type: object
+      additionalProperties:
+        description: the IRI
+        type: string
+    query: 
+      oneOf:
+        - $ref: '#/components/schemas/iirdsquery'
+        - $ref: '#/components/schemas/nativequery'
+      discriminator:
+        propertyName: querytype
+        mapping:
+          iirdsquery: '#/components/schemas/iirdsquery'
+          nativequery: '#/components/schemas/nativequery'
+    nativequery:
+      title: native query
+      description: |
+        Native query as defined by the implementing system.
+      type: object
+      required:
+        - querytype
+        - query
+      properties: 
+        querytype:
+          description: |
+            The query type. Must be `nativequery`
+          type: string
+          enum: 
+            - nativequery
+        query: 
+          type: string
+          description: |
+            The query in the native query language of the implementing system.
+    iirdsquery:
+      title: iiRDS query
+      description: | 
+        Query for iiRDS resources
+      type: object
+      required:
+        - querytype
+        - resource
+      properties:
+        querytype: 
+          description: |
+            The query type. Must be `iirdsquery`.
+          type: string
+          enum: 
+            - iirdsquery
+        context:
+          $ref: '#/components/schemas/context'
+        resource:
+          $ref: '#/components/schemas/queryResource'
+        resultProperties:
+          $ref: '#/components/schemas/resultProperties'
+        orderBy:
+          $ref: '#/components/schemas/orderBy'
+    orderBy:
+      description: |
+        Defines criteria how to order the query result RDF resources.
+        When not present, the result is ordered as defined by the implementation. 
+
+        Ordering is applied to the query results of those resources tagged with ``"asResult": true``
+        in the query. 
+
+        The query result is a graph of RDF objects and properties. The ordering of the results is 
+        provided in the ``@graph`` as part of the single object of type ``iirdsReq:QueryResults``.
+        Its ``results`` property is the ordered list referencing the resulting objects in the graph. 
+        
+        The ordering must be stable. Thus, running a query twice without ``orderBy``, must result
+        in the same ordering of the results to support paged querying.
+
+        Ordering is defined by an list array of properties of the resuling RDF resources and the 
+        applicable order direction, either ``asc`` (ascending) or ``desc`` (descending).
+        When no direction is specificed, ascending order is implied. Ordering can be bases on multiple properties.
+
+        Ordering follows the rules defined in [SPARQL 'order by' clause](https://www.w3.org/TR/rdf-sparql-query/#modOrderBy):
+        - Ordering is type specific.
+        - Pairs of numerics, simple literals, xsd:strings, xsd:booleans and xsd:dateTimes are defined in [SPARQL "<" operator](https://www.w3.org/TR/rdf-sparql-query/#op_lt) definitions.
+        - Pairs of IRIs are ordered by comparing them as simple literals.
+        - The (ascending) order of porperty values types is:
+          1. (Lowest) no value
+          1. blank nodes
+          1. IRIs
+          1. RDF literals 
+        - A plain literal is lower than an RDF literal with type xsd:string of the same lexical form.
+        - There are special cases, where ordering of pairs is undefined and is up to the implementation, 
+          see ([SPARQL 'order by' clause](https://www.w3.org/TR/rdf-sparql-query/#modOrderBy)):
+          - ``"a"`` and ``"a"@en_gb`` (a simple literal and a literal with a language tag)
+          - ``"a"@en_gb`` and ``"b"@en_gb`` (two literals with language tags)
+          - ``"a"`` and ``"a"^^xsd:string`` (a simple literal and an xsd:string)
+          - ``"a"`` and ``"1"^^xsd:integer`` (a simple literal and a literal with a supported data type)
+          - ``"1"^^my:integer`` and ``"2"^^my:integer`` (two unsupported data types)
+          - ``"1"^^xsd:integer`` and ``"2"^^my:integer`` (a supported data type and an unsupported data type)
+      type: array
+      minItems: 1
+      items:
+        type: object
+        required:
+          - property
+        properties:
+          property:
+            description: The property to use for sorting.
+            type: string
+          direction:
+            description: The order direction to be applied to this property.
+            type: string
+            default: asc
+            enum:
+              - asc
+              - desc
+    resultProperties:
+      description: |
+        Defines which resource properties should be included in the result.
+
+        When a type is not listed, the following default behavior applies:
+        - All properties are included in the result
+
+        A resource referenced by a property gets included when
+          - either it is an RDF blank node
+          - or the resource type is listed in ``byType``
+
+        #### Example:
+
+        ```
+        "resultProperties": {
+          "byType": {
+            "iirds:InformationUnit": {
+              "includeProperties": [
+                "iirds:is-replacement-of",
+                "iirds:is-version-of"
+              ]
+            }
+          },
+          "iirds:Party": {
+          },
+          "vcard:Individual": {
+            "includeProperties": [
+              "vcard:fn"
+              ]
+            }
+          }
+        }
+        ```
+
+      type: object
+      properties:
+        byType:
+          description: |
+            Defines specific result behavior by RDF type.
+            For types not listed in this map, the default behavior defined in `resultProperties` applies. 
+          additionalProperties:
+            type: object
+            description: |
+              The result properties are type specific. 
+              The keys of this map are the RDF types, the value objects define which properties to include for the given type.
+              The settings apply also to subtypes of the given RDF type, 
+              e.g., for `iirds:Topic` if `irds:InformationUnit` is given.
+            properties:
+              includeProperties:
+                description: |
+                  Defines the result behavior of specific properties of the type.
+
+                  If the array is not provided, all properties are put into the result according to the default behavior 
+                  described in `resultProperties`.
+                type: array
+                items: 
+                  description: The RDF property 
+                  type: string
+    queryResource:
+      title: RDF resource search criteria
+      description: |
+        One or more iiRDS resources queried by predicate logic. 
+
+        When the array contains more than one item, the query result
+        must contain the union of the RDF resources qualified
+        by at least one item of this array.
+
+        For each item of the array conditions on the RDF resource 
+        can be expressed for 
+          - the IRI (id)
+          - the RDF type 
+          - property values of the resource 
+          - text renditions must contain in their source
+
+        Each condition must be fulfilled to qualify the resource for the result.
+      type: array
+      items:
+        title: conditions on a RDF resource to qualify for the query result
+        type: object
+        properties:
+          id:
+            description: |
+              Array of IRIs of iiRDS resources given by an absolute IRI or a combination of a namespace defined in 'context' and an extension
+            type: array
+            items:
+              type: string
+          type:
+            description: | 
+              Array of IRIs of RDF classes given by an absolute IRI or a combination of a namespace defined in 'context' and an extentions.
+              
+              An iiRDS resource matches this condition, when it is an instance of the given RDF class or any subclass of the given RDF class.
+            type: array
+            items:
+              type: string
+          asResult:
+            title: put into result list?
+            description: |
+              When true (the default) matching resources appear in the query result list. 
+              At least one `resource` object of the overall query must be tagged with ``"asResult": true``.
+            type: boolean
+            default: true
+          content: 
+            $ref: '#/components/schemas/queryContent'
+          predicates:
+            $ref: '#/components/schemas/queryPredicates'
+    queryPredicates:
+      # example:
+      #   "predicates": {
+      #      ....
+      #    }
+      title: Query predicates
+      description: |
+        Defines conditions on the properties of resources by predicate logic.
+        To qualify for the query result, an RDS resource must fulfill 
+        at least one ``resource`` property condition or the ``value``
+        property condition provided in here.
+      type: object
+      minProperties: 1
+      additionalProperties:
+        # example: 
+        #   "iirds:relates-to-product-variant": [
+        #       ...
+        #   ]
+        title: Conditions on values or objects of a property
+        description: |
+          Map of RDF property IRIs to the conditions on the property value
+          which must be fulfilled to qualify for the query result
+          The conditions to fulfill on the RDF property.
+
+          Only one of the conditions needs to be fulfilled to qualify for the result.
+          Conditions can be put on referenced resources 
+          with conditions on their own (use ``resource``) 
+          or a comparison with the atomic property value (use ``value``).
+          When neither ``resource`` nor ``value`` are present, the resource 
+          qualifies for the result, when the property is present at all.
+
+          In the case a resource has multiple instances of the the given properties,
+          the resource qualifies a result, when at least one property condition evaluates to true.
+        type: object
+        properties:
+          resource:
+            $ref: "#/components/schemas/queryResource"
+          value:
+            $ref: "#/components/schemas/predicateValue"
+          # example:
+          # {
+          #   {
+          #     "value": {
+          #        ...
+          #     }
+          #   },
+          #   {
+          #     "resource": [
+          #         ...
+          #     ]
+          #  } 
+          recurselevel:
+            description: |
+              If a value > 1 is set and the property object is a resource, 
+              the retrieval based on this property will be done recursively.
+              Thus from the resulting resources of the property the retrieval 
+              based on this property starts again up to the ``maximum``
+              provided.
+
+              The implementation MUST be aware of possible cycles in the graph and make sure 
+              not to run endless iterations.
+
+              #### Example:
+              
+              In the follow example, the query looks for up to five version replacements 
+              of a given information unit (thus looking for up to five  predecessor versions).
+
+              ```
+              {
+                  "querytype": "iirdsquery",
+                  "context": {
+                      "iirds": "http://iirds.tekom.de/iirds#"
+                  },
+                  "resource": [
+                      {
+                          "id": "https://www.i4icm.de/pifan#t123",
+                          "predicates": {
+                              "iirds:is-replacement-of": {
+                                  "recurselevel": 5,
+                                  "resource": [
+                                      {
+                                          "asResult": true
+                                      }
+                                  ]
+                              }
+                          }
+                      }
+                  ]
+              }
+              ```
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 1
+    queryContent:
+      title: fulltext search in the content of a rendition
+      description: |
+        A fulltext search in the content of a rendition.
+
+        This property should only be used for ``iirds:Rendition``
+        resources. For any other resource type, this condition
+        disqualifies the RDF resource as result.
+
+        All search items of the array must be fulfilled to qualify
+        for the result.
+
+        #### Example:
+        ``` 
+          "content": [{
+            "op": "contains",
+            "literal": ["clean", "rotor"]
+          }]
+        ```
+
+      type: array
+      items:
+        type: object
+        required: 
+          - literal
+          - op
+        properties:
+          op:
+            description: |
+              The fulltext operator.
+              Currently only ``contains`` is supported.
+              The rendition qualifies when it contains one or more of the given literals.
+            type: string
+            enum:
+              - contains
+          literal:
+            description: |
+              Array of literals to search for.
+            type: array
+            items:
+              type: string
+
+    predicateValue:
+      title: predicate value qualification
+      description: |
+        A comparison of property values
+        
+        #### Example:
+        ``` 
+          "value": {
+            "op": "contains",
+            "literal": [
+              "Cleaning"
+            ],
+            "lang": "en"
+          }
+        ``` 
+      type: object
+      required:
+        - literal
+      properties:
+        op:
+          # example:
+          #   "op": "="
+          title: the operator to use
+          description: |
+            The operator to compare the value(s) to the property value of the resource
+            The following operators are defined:
+            - ``>``: the property value must be greater than the value provided in the literal
+            - ``<``: the property value must be less than the value provided in the literal
+            - ``>=``: the property value must be greater than or equal the value provided in the literal
+            - ``<=``: the property value must be less than or equal the value provided in the literal
+            - ``=``: the property value must equal at least one value provided in the literal
+            - ``!=``: the property value must not equal any value provided in the literal
+            - ``between``: the property value must be greater than or equal the first value provided
+              in the literal and less than or equal the second value provided in the literal.
+
+            The rules defined in [SPARQL Operator Mapping] (https://www.w3.org/TR/sparql11-query/#OperatorMapping)
+            apply to the operator evaluation evalulation.
+          enum:
+            - '>'
+            - <
+            - '>='
+            - '<='
+            - '='
+            - '!='
+            - between
+          default: =
+        type: 
+          # example:
+          #   "type": "xsd:string"
+          title: the RDF data type of the provided literal
+          description: |
+            the RDF type of the value, e.g. ``xsd:string``. 
+            If no type is provided, an untyped ``literal`` is assumed
+          type: string
+        lang: 
+          type: string
+          description: the language tag of the literal, e.g. ``en``, ``de``
+        literal: 
+          type: array
+          minItems: 1
+          items:    
+            title: the literal 
+            type: string 
+          description: |
+            The literal representation of the property value in the literal 
+            format defined by RDF according to the data  type set in ``type``.
+            Only one array item is allowed, except for ``op`` ``=``, ``!=``, and ``between``.
+            ``between`` requires exactly two items.
+
+    fetch:
+      title: array of IRIs
+      description: Array of IRIs to look up.
+      type: array
+      items:
+        type: string
+      example:
+        - https://www.i4icm.de/pifan#SpeedAdjustment
+        - https://www.i4icm.de/pifan#ScrewDriverPhillips
+        - https://www.i4icm.de/pifan#X5-DH2
+    queryResult:
+      type: object
+      description: |
+        JSON-LD representation of the results.
+
+        The graph must contain exactly one object of type ``iirdsReq:QueryResults``. 
+        The property ``iirdsReq:results`` is the ordered list referencing the query result objects. 
+        Each item has the properties ``iirdsReq:score`` (optional), ``iirdsReq:resource`` (required), 
+        which references the iiRDS resource. 
+
+        The JSON-LD graph (``@graph`` object) must contains all query results 
+        referenced from ``iirdsReq:results``, and any other iiRDS resources 
+        referenced by the results as requested by the query and general rules 
+        provided in this API specification. 
+
+        The ``@context`` object may look like this:
+        ```
+        "@context": {
+          "iirds": "http://iirds.tekom.de/iirds#",
+          "iirdsMch": "http://iirds.tekom.de/iirds/domain/machinery#",
+          "iirdsReq": "http://iirds.org/schema/iirds-request#",
+          "iirdsSft": "http://iirds.tekom.de/iirds/domain/software#",
+          "pifan": "https://www.i4icm.de/pifan#",
+          "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+          "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+          "vcard": "http://www.w3.org/2006/vcard/ns#"
+        }
+        ```
+
+        The object representing the ordered result list may look like this:
+        ```
+         {
+            "@type": "iirdsReq:QueryResults",
+            "iirdsReq:count": "1",
+            "iirdsReq:offset": "0",
+            "iirdsReq:results": {
+                "@type": "rdf:Seq",
+                "rdf:_1": {
+                    "iirdsReq:resource": {
+                        "@id": "http://myCompany.com/versions/io_1/de/1"
+                    },
+                    "iirdsReq:score": "1.0"
+                },
+                "rdf:_2": {
+                    "iirdsReq:resource": {
+                        "@id": "http://myCompany.com/versions/io_1/de/2"
+                    },
+                    "iirdsReq:score": "1.0"
+                }
+            }
+        }
+        ```
+
+        To achieve an ordered result list, the JSON-LD representation of the results 
+        must use the correct RDF types and node identifiers as shown above.
+
+      example:
+        "@context":
+          iirds: http://iirds.tekom.de/iirds#
+          iirdsMch: http://iirds.tekom.de/iirds/domain/machinery#
+          iirdsReq: http://iirds.org/schema/iirds-request#
+          iirdsSft: http://iirds.tekom.de/iirds/domain/software#
+          pifan: https://www.i4icm.de/pifan#
+          rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+          rdfs: http://www.w3.org/2000/01/rdf-schema#
+          vcard: http://www.w3.org/2006/vcard/ns#
+        "@graph":
+        - "@type": iirdsReq:QueryResults
+          iirdsReq:count: '1'
+          iirdsReq:offset: '0'
+          iirdsReq:results:
+            "@type": rdf:Seq
+            rdf:_1:
+              iirdsReq:resource:
+                "@id": http://myCompany.com/versions/io_1/de/1
+              iirdsReq:score: '1.0'
+        - "@id": http://myCompany.com/versions/io_1/de/1
+          "@type": iirds:Topic
+          iirds:dateOfCreation:
+            "@type": xsd:dateTimeStamp
+            "@value": '2019-01-09T09:52:00+01:00'
+          iirds:has-content-lifecycle-status:
+            "@id": _:N89ddb41492b04fa998c2bfe727eceb69
+          iirds:has-rendition:
+            "@id": _:N049bb0f348f745dc8098c2e045989a1d
+          iirds:has-topic-type:
+            "@id": iirds:GenericTask
+          iirds:is-applicable-for-document-type:
+          - "@id": iirds:RepairInstructions
+          - "@id": iirds:OperatingInstructions
+          - "@id": iirds:MaintenanceInstructions
+          - "@id": iirds:QuickGuide
+          iirds:is-part-of-package:
+            "@id": http://myCompany.com/iiRDS-parent
+          iirds:language: en
+          iirds:relates-to-component:
+          - "@id": https://www.i4icm.de/pifan#PIFan
+          - "@id": https://www.i4icm.de/pifan#Rotor
+          iirds:relates-to-product-lifecycle-phase:
+          - "@id": iirds:Maintenance
+          - "@id": iirdsMch:Cleaning
+          iirds:relates-to-product-variant:
+            "@id": https://www.i4icm.de/pifan#X5-DH2
+          iirds:relates-to-qualification:
+          - "@id": https://www.i4icm.de/pifan#ServiceTechnician
+          - "@id": https://www.i4icm.de/pifan#Operator
+          iirds:rights: |-
+            Content Copyright (c) 2015, PI-Fan Project
+            iiRDS Implementation Copyright (c) 2019, iiRDS Consortium
+
+
+            THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+            IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+            FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+            AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+            LIABILITY, WHETHER IN AN ACTION aOF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+            OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+            THE SOFTWARE.
+          iirds:title: Cleaning the rotor
+        - "@id": _:N89ddb41492b04fa998c2bfe727eceb69
+          "@type": iirds:ContentLifeCycleStatus
+          iirds:dateOfStatus:
+            "@type": xsd:dateTimeStamp
+            "@value": '2019-08-11T09:52:00+01:00'
+          iirds:has-content-lifecycle-status-value:
+            "@id": iirds:Reviewed
+          iirds:relates-to-party:
+            "@id": http://myCompany.com/supplier/SupCo
+        - "@id": _:N049bb0f348f745dc8098c2e045989a1d
+          "@type": iirds:Rendition
+          iirds:format: application/xhtml+xml
+          iirds:source: content/6_Maintenance/6_1_rotor_cleaning.xhtml
+    queryResult-RDF:
+      title: query result (RDF-XML format)
+      description: |
+        [RDF-XML](https://www.w3.org/TR/rdf-syntax-grammar/) representation of the results.
+        The RDF result requires the following namespce definition:
+        ``xmlns:iirdsReq="http://iirds.org/schema/iirds-request#"`` 
+
+        The graph must contain exactly one object of type ``iirdsReq:QueryResults``. 
+        The property ``iirdsReq:results`` is the ordered list (prepresented by type ``rdf:Seq``) 
+        referencing the query result objects. 
+        Each item has the properties ``iirdsReq:score`` (optional), ``iirdsReq:resource`` (required), 
+        which references the iiRDS resource. 
+        The RDF must contains all query results referenced from ``iirdsReq:results``,  
+        and any other iiRDS resources referenced by the results 
+        as requested by the query and general rules provided in this API specification. 
+      type: string
+    sparqlJSONResult:
+      title: SPARQL - JSON result format
+      type: object
+      description: |
+        The SPARQL specification defines the [schema](https://www.w3.org/TR/sparql12-results-json/#json-result-object) of a JSON result format for SELECT and ASK queries.
+    sparqlCSVResult:
+      title: SPARQL - CSV result format
+      type: string
+      description: |
+        The SPARQL specification defines the [schema](https://www.w3.org/TR/sparql12-results-csv-tsv/#csv-table) of a CSV result format for SELECT and ASK queries.
+    sparqlTSVResult:
+      title: SPARQL - TSV result format
+      type: string
+      description: |
+        The SPARQL specification defines the [schema](https://www.w3.org/TR/sparql12-results-csv-tsv/#tsv) of a TSV result format for SELECT and ASK queries.           
+    sparqlXMLResult:
+      title: SPARQL - XML result format
+      type: string
+      description: |
+        The SPARQL specification defines the [schema](https://www.w3.org/TR/sparql12-results-xml)  of a XML result format for SELECT and ASK queries.               
