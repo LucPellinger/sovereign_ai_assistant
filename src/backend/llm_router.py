@@ -5,6 +5,8 @@ from langchain_openai import ChatOpenAI
 
 class LLMRouter:
     def __init__(self):
+        '''Initialize LLM Router with local and remote model configurations.
+        '''
         # Local (Ollama)
         self.local_model = os.getenv("LOCAL_MODEL_NAME", "llama3.2:latest")
         self.local_base  = os.getenv("LOCAL_BASE_URL", "http://ollama:11434/v1")
@@ -18,6 +20,14 @@ class LLMRouter:
         self._remote_llm = ChatOpenAI(model=self.remote_model, api_key=self.remote_key, base_url=self.remote_base) if self.remote_key else None
 
     def pick(self, mode: str = "local", model_override: Optional[str] = None) -> ChatOpenAI:
+        '''Pick an LLM based on mode and optional model override.
+
+        Args:
+            mode: "local", "remote", or "auto" to select LLM.
+            model_override: Specific model name to override default.
+        Returns:
+            An instance of ChatOpenAI configured for the selected model.
+        '''
         m = (mode or "local").lower()
         if m == "local":
             if model_override and model_override != self.local_model:

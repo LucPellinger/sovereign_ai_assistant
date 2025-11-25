@@ -8,9 +8,17 @@ import logging
 log = logging.getLogger("rag.pipeline")
 
 class IirdsRagPipeline:
+
+    # Define which metadata fields are arrays in Chroma
     ARRAY_FIELDS = set() # {"product_variants", "components", "roles", "doc_types", "subjects", "phases"}
 
     def __init__(self, chroma: ChromaStore, neo4j: Neo4jStore):
+        '''RAG Pipeline combining Chroma vector store and Neo4j graph database.
+        
+        Args:
+            chroma: Instance of ChromaStore for vector search.
+            neo4j: Instance of Neo4jStore for graph queries.
+        '''
         self.chroma = chroma
         self.neo4j = neo4j
         self.embed = get_embedder()
@@ -21,6 +29,12 @@ class IirdsRagPipeline:
         - For scalar fields: {"field": {"$eq": value}}
         - For array fields in metadata: {"field": {"$contains": value}}
         - For multiple conditions: {"$and": [ ... ]}
+
+        Args:
+            filters: Dict of field -> value(s) to filter on.
+
+        Returns:
+            A Chroma filter dict or None if no filters.
         """
         if not filters:
             return None
@@ -52,6 +66,18 @@ class IirdsRagPipeline:
     
     # NEW: split graph filters vs direct Chroma filters
     def _prepare_graph_and_chroma_filters(self, filters: Optional[Dict[str, Any]]):
+        '''
+        Split filters into those that need Neo4j graph resolution and those
+        that can be applied directly in Chroma.
+
+        Args:
+            filters: Dict of field -> value(s) to filter on.
+
+        Returns:
+            Tuple of (parent_iris, chroma_filters) where:
+            - parent_iris: Set of parent IRIs from Neo4j (or None)
+            - chroma_filters: Dict of remaining filters for Chroma
+        '''
         if not filters:
             return None, {}
 
@@ -89,6 +115,17 @@ class IirdsRagPipeline:
 
 
     def semantic_search(self, question: str, filters: Optional[Dict[str, Any]] = None, k: int = 8):
+        ''' 
+        Perform a semantic search with optional filters.
+        Combines Neo4j graph filtering with Chroma vector search.
+        
+        Args:
+            question: The input question string.
+            filters: Optional dict of metadata filters.
+            k: Number of top results to return.
+            
+        Returns: List of search hits.
+        '''
         # 1) Use Neo4j to pre-select parent_iri via graph filters (GraphRAG)
         parent_iris, chroma_filters = self._prepare_graph_and_chroma_filters(filters)
 
@@ -112,6 +149,17 @@ class IirdsRagPipeline:
     def answer_context(
         self, question: str, filters: Optional[Dict[str, Any]] = None, k: int = 8, return_hits: bool = False
     ) -> Tuple[str, list, List[dict]]:
+        '''
+        Retrieve context for answering a question using semantic search.
+
+        Args:
+            question: The input question string.
+            filters: Optional dict of metadata filters.
+            k: Number of top results to retrieve.
+            return_hits: Whether to return raw hits along with context and citations.
+        Returns:
+            Tuple of (context string, citations list, [optional hits list])
+        '''
         hits = self.semantic_search(question, filters, k)
         ctx = "\n\n---\n\n".join(h["text"] for h in hits)
         log.info(f"answer_context: ctx_chars={len(ctx)} citations={len(hits)}")

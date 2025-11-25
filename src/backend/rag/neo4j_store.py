@@ -1,10 +1,21 @@
 # neo4j_store.py
+''' Neo4j graph store for RAG backend '''
 import time
 from neo4j import GraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
 class Neo4jStore:
     def __init__(self, uri="bolt://neo4j:7687", user="neo4j", password="password"):
+        '''Initialize Neo4jStore with connection parameters and retry logic.
+        
+        Args:
+            uri: Neo4j connection URI.
+            user: Username for Neo4j authentication.
+            password: Password for Neo4j authentication.
+
+        Returns:
+            None
+        '''
         # retry connect (e.g., 30s)
         deadline = time.time() + 30
         last_err = None
@@ -22,6 +33,7 @@ class Neo4jStore:
             raise last_err or RuntimeError("Could not connect to Neo4j")
 
     def ensure_constraints(self):
+        '''Ensure uniqueness constraints exist in the Neo4j database.'''
         stmts = [
             "CREATE CONSTRAINT pkg_iri   IF NOT EXISTS FOR (p:Package)   REQUIRE p.iri IS UNIQUE",
             "CREATE CONSTRAINT doc_iri   IF NOT EXISTS FOR (n:Document)  REQUIRE n.iri IS UNIQUE",
@@ -34,6 +46,14 @@ class Neo4jStore:
                 s.run(q)
 
     def upsert_graph(self, data):
+        '''Upsert nodes and relationships into the Neo4j graph database.
+        
+        Args:
+            data: Dictionary containing package, documents, topics, and renditions.
+
+        Returns:
+            None
+        '''
         with self.driver.session() as s:
             if data.get("package"):
                 s.run("MERGE (p:Package {iri:$iri})", iri=data["package"]["iri"])
@@ -68,6 +88,18 @@ class Neo4jStore:
                 """, parent=r["parent_iri"], src=r["source_path"], fmt=r.get("format"))
 
     def _attach_array(self, s, iri, values, label, rel):
+        '''Attach array of related nodes to a node via relationships.
+        
+        Args:
+            s: Neo4j session.
+            iri: IRI of the source node.
+            values: List of IRIs for related nodes.
+            label: Label of the related nodes.
+            rel: Relationship type.
+
+        Returns:
+            None
+        '''
         for val in values:
             s.run(f"""
                 MATCH (n {{iri:$iri}})
@@ -76,6 +108,14 @@ class Neo4jStore:
             """, iri=iri, val=val)
 
     def link_chunks(self, chunks):
+        '''Link text chunks to their parent nodes in the Neo4j graph database.
+        
+        Args:
+            chunks: List of chunk dictionaries with "chunk_id", "path", "start", "end", and "parent_iri".
+
+        Returns:
+            None
+        '''
         with self.driver.session() as s:
             for c in chunks:
                 s.run("""
@@ -88,6 +128,16 @@ class Neo4jStore:
 
     # Convenience collection helpers
     def _collect(self, s, iri, rel):
+        '''Collect related node IRIs for a given node and relationship type.
+        
+        Args:
+            s: Neo4j session.
+            iri: IRI of the source node.
+            rel: Relationship type.
+
+        Returns:
+            List of related node IRIs.
+        '''
         rec = s.run(f"""
             MATCH (n {{iri:$iri}})-[:{rel}]->(m)
             RETURN collect(distinct m.iri) AS items
@@ -95,15 +145,47 @@ class Neo4jStore:
         return rec["items"] if rec else []
 
     def fetch_variants(self, iri):
+        '''Fetch product variant IRIs related to a given node IRI.
+
+        Args:
+            iri: IRI of the source node.
+
+        Returns:
+            List of related product variant IRIs.
+        '''
         with self.driver.session() as s:
             return self._collect(s, iri, "RELATES_TO_PRODUCT_VARIANT")
     def fetch_components(self, iri):
+        '''Fetch component IRIs related to a given node IRI.
+        Args:
+            iri: IRI of the source node.
+
+        Returns:
+            List of related component IRIs.
+        '''
         with self.driver.session() as s:
             return self._collect(s, iri, "RELATES_TO_COMPONENT")
+        
     def fetch_roles(self, iri):
+        '''Fetch role IRIs related to a given node IRI.
+        Args:
+            iri: IRI of the source node.
+
+        Returns:
+            List of related role IRIs.
+        '''
         with self.driver.session() as s:
             return self._collect(s, iri, "HAS_ROLE")
+        
     def fetch_doc_types(self, iri):
+        '''Fetch document type IRIs related to a given node IRI.
+        
+        Args:
+            iri: IRI of the source node.
+
+        Returns:
+            List of related document type IRIs.
+        '''
         with self.driver.session() as s:
             return self._collect(s, iri, "APPLIES_TO_DOCUMENT_TYPE")
 
@@ -117,6 +199,19 @@ class Neo4jStore:
         subjects=None,
         phases=None,
     ):
+        '''Find parent node IRIs matching given filter criteria.
+        
+        Args:
+            product_variants: List of product variant IRIs to filter by.
+            components: List of component IRIs to filter by.
+            roles: List of role IRIs to filter by.
+            doc_types: List of document type IRIs to filter by.
+            subjects: List of subject IRIs to filter by.
+            phases: List of lifecycle phase IRIs to filter by.
+
+        Returns:
+            List of parent node IRIs matching the given filters.
+        '''
         product_variants = list(product_variants or [])
         components       = list(components or [])
         roles            = list(roles or [])

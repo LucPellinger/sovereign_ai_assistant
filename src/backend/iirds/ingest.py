@@ -1,3 +1,5 @@
+'''Ingest II RDS ZIP packages, extract content, and store in vector DB and graph DB.'''
+
 import io, zipfile, hashlib
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -16,13 +18,28 @@ SUPPORTED_PDF = (".pdf",)
 
 class IirdsIngestor:
     def __init__(self, chroma: ChromaStore, neo4j: Neo4jStore, base_source="upload"):
+        '''Initialize the IirdsIngestor with Chroma and Neo4j stores.
+        
+        Args:
+            chroma (ChromaStore): The Chroma vector store instance.
+            neo4j (Neo4jStore): The Neo4j graph database instance.
+            base_source (str): The base source identifier for ingested data.
+        '''
         self.chroma = chroma
         self.neo4j = neo4j
         self.embed = get_embedder()
         self.base_source = base_source
 
-    # NEW: ensure metadata is scalar-only for Chroma
+    # ensure metadata is scalar-only for Chroma
     def _scalarize_meta_values(self, attrs: Dict) -> Dict:
+        '''
+        Convert list-valued metadata attributes to scalar strings.
+        
+        Args:
+            attrs (Dict): The original metadata attributes.
+        Returns:
+            Dict: The scalarized metadata attributes.
+        '''
         out: Dict = {}
         for k, v in attrs.items():
             if isinstance(v, (list, tuple, set)):
@@ -37,6 +54,18 @@ class IirdsIngestor:
                          chunk_tokens: int = 250, overlap_tokens: int = 40,
                          min_chunk_chars: int = 40) -> Dict:
         zf = zipfile.ZipFile(io.BytesIO(blob))
+        '''Ingest an II RDS ZIP package from bytes.
+        
+        Args:
+            blob (bytes): The ZIP package content as bytes.
+            zip_name (str): The name of the ZIP package.
+            chunk_tokens (int): Target number of tokens per text chunk.
+            overlap_tokens (int): Number of overlapping tokens between chunks.
+            min_chunk_chars (int): Minimum number of characters for a chunk to be kept.
+
+        Returns:
+            Dict: Summary of the ingestion process.
+        '''
 
         try:
             rdf_bytes = zf.read("META-INF/metadata.rdf")
@@ -129,10 +158,33 @@ class IirdsIngestor:
         }
 
     def _chunk_id(self, zip_name: str, path: str, start: int, end: int, text: str) -> str:
+        '''
+        Generate a unique chunk ID based on the ZIP name, file path, start and end positions, and a snippet of the text.
+
+        Args:
+            zip_name (str): The name of the ZIP package.
+            path (str): The file path within the ZIP.
+            start (int): The start position of the chunk.
+            end (int): The end position of the chunk.
+            text (str): The text content of the chunk.
+
+        Returns:
+            str: A unique chunk ID.
+        '''
         h = hashlib.sha1(f"{zip_name}|{path}|{start}|{end}|{text[:64]}".encode("utf-8")).hexdigest()
         return f"chk_{h}"
 
     def _resolve_zip_path(self, zf: zipfile.ZipFile, src: str) -> Optional[str]:
+        '''
+        Resolve the correct file path within a ZIP archive, handling case insensitivity and basename matching.
+
+        Args:
+            zf (zipfile.ZipFile): The ZIP file object.
+            src (str): The source file path to resolve.
+
+        Returns:
+            Optional[str]: The resolved file path within the ZIP, or None if not found.
+        '''
         names = zf.namelist()
         src_norm = src.lstrip("/")
 

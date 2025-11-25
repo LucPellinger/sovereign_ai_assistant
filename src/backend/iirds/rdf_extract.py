@@ -1,3 +1,5 @@
+'''RDF metadata extractor for IIRDS packages.'''
+
 from rdflib import Graph, Namespace, URIRef, Literal
 from rdflib.namespace import RDF, RDFS, DCTERMS, DC
 from typing import Dict, Optional, List
@@ -6,13 +8,48 @@ IIRDS = Namespace("http://iirds.tekom.de/iirds#")
 SUPPORTED_EXT = (".xhtml", ".html", ".htm", ".pdf")
 
 def _one(g: Graph, s, p) -> Optional[str]:
+    '''Return the first object for subject s and predicate p as string, or None.
+    
+    Args:
+        g: RDF graph
+        s: subject
+        p: predicate
+    
+    Returns:
+        The first object as string, or None if not found.
+    '''
     o = next(g.objects(s, p), None)
     return str(o) if o is not None else None
 
 def _many(g: Graph, s, p) -> List[str]:
+    '''Return all objects for subject s and predicate p as strings.
+    
+    Args:
+        g: RDF graph
+        s: subject
+        p: predicate
+    
+    Returns:
+        List of objects as strings.
+    '''
+
     return [str(o) for o in g.objects(s, p)]
 
 def parse_metadata_rdf(rdf_bytes: bytes) -> Dict:
+    '''Parse RDF metadata from IIRDS package RDF/XML content.
+    
+    Args:
+        rdf_bytes: RDF/XML content as bytes.
+
+    Returns:
+        A dictionary with extracted metadata:
+        {
+            "package": {"iri": ...},
+            "documents": [ {...}, ... ],
+            "topics": [ {...}, ... ],
+            "renditions": [ {...}, ... ]
+        }
+    '''
     g = Graph()
     g.parse(data=rdf_bytes, format="xml")
 
@@ -98,6 +135,17 @@ def parse_metadata_rdf(rdf_bytes: bytes) -> Dict:
     return data
 
 def _first_of(g: Graph, s, preds: List) -> Optional[str]:
+    '''
+    Return the first object as string for subject s and any of the predicates in preds.
+
+    Args:
+        g: RDF graph
+        s: subject
+        preds: list of predicates
+
+    Returns:
+        The first object as string, or None if not found.
+    '''
     for p in preds:
         val = _one(g, s, p)
         if val:
@@ -105,6 +153,28 @@ def _first_of(g: Graph, s, preds: List) -> Optional[str]:
     return None
 
 def _extract_iu(g: Graph, iu, is_topic: bool) -> Dict:
+    '''Extract metadata for a Document or Topic information unit.
+    Args:
+        g: RDF graph
+        iu: subject URIRef
+        is_topic: True if the IU is a Topic, False if Document
+
+    Returns:
+        A dictionary with extracted metadata.
+        {
+            "iri": ...,
+            "label": ...,
+            "language": ...,
+            "doc_types": [...],
+            "product_variants": [...],
+            "components": [...],
+            "roles": [...],
+            "subjects": [...],
+            "phases": [...],
+            "status": {"value": ..., "date": ...},
+            "kind": "Topic" | "Document"
+        }
+    '''
     # labels/titles/language
     label = (_one(g, iu, RDFS.label) or _one(g, iu, DCTERMS.title) or _one(g, iu, DC.title))
     language = (_one(g, iu, IIRDS["language"]) or _one(g, iu, DCTERMS.language) or _one(g, iu, DC.language))

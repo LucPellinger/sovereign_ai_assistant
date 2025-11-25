@@ -1,4 +1,7 @@
 # backend/main.py
+'''Main FastAPI application for iiRDS RAG system.
+Provides endpoints for health check, document ingestion, and querying.
+'''
 import os
 from fastapi import FastAPI, UploadFile, File, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -34,6 +37,7 @@ pipeline = IirdsRagPipeline(chroma, neo4j)
 llm_router = LLMRouter()
 
 class QueryPayload(BaseModel):
+    '''Payload model for query endpoint.'''
     question: str
     filters: dict = Field(default_factory=dict)
     mode: str = Field(default="local")
@@ -45,10 +49,12 @@ class QueryPayload(BaseModel):
 
 @app.get("/health")
 def health():
+    '''Health check endpoint.'''
     return {"status": "ok"}
 
 @app.post("/ingest")
 async def ingest(file: UploadFile = File(...)):
+    '''Ingest an iiRDS ZIP package.'''
     try:
         blob = await file.read()
         # optional: keep a copy of uploaded file
@@ -70,6 +76,7 @@ async def ingest(file: UploadFile = File(...)):
 
 @app.post("/query")
 async def query(payload: QueryPayload, response: Response):
+    '''Query endpoint to answer questions using RAG.'''
     ctx, cites, hits = pipeline.answer_context(
         payload.question, filters=payload.filters, k=8, return_hits=True  # ← return hits
     )

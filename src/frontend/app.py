@@ -1,4 +1,5 @@
 # src/frontend/app.py
+'''Streamlit frontend for iiRDS RAG Agent.'''
 import os
 import requests
 import streamlit as st

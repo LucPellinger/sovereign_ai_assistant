@@ -4,7 +4,7 @@ This repository contains the code and resources for the Sovereign AI Assistant, 
 
 ---
 ## Demo
-!demo is loading! 
+!demo is loading!
 <center>
 <img src="docs/Demo_GraphRAG_Agent.gif" alt="Project Overview" width="1000"/>
 </center>

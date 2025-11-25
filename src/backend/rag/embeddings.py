@@ -1,9 +1,12 @@
+'''Embedding utility for RAG. Uses Ollama to access local embedding models.'''
+
 import os
 from langchain_ollama import OllamaEmbeddings
 
 
 # Use local embedding model via Ollama; adjust model name as needed
 def get_embedder():
+    '''Returns a function that takes a list of texts and returns their embeddings.'''
     base = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
     model = (
         os.getenv("LOCAL_EMBEDDING_MODEL_NAME")

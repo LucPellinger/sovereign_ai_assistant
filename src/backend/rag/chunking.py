@@ -1,7 +1,19 @@
+'''Text chunking utility for RAG.'''
+
 from typing import List, Tuple
 import re
 
 def chunk_text(text: str, target_tokens=250, overlap_tokens=40) -> List[Tuple[int,int,str]]:
+    '''Chunk text into overlapping segments based on token count.
+    
+    Args:
+        text: The input text to chunk.
+        target_tokens: Target number of tokens per chunk.
+        overlap_tokens: Number of tokens to overlap between chunks.
+
+    Returns:
+        List of tuples containing (start_char_index, end_char_index, chunk_text).
+    '''
     # simple token = whitespace split; replace with tiktoken if you prefer
     words = text.split()
     if not words: return []
