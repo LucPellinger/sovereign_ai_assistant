@@ -1,2 +1,23 @@
-langchain-openai
+# existing frontend dependencies project...
 streamlit
+langchain-openai
+
+# backend + RAG
+pandas
+fastapi
+requests
+uvicorn[standard]
+chromadb
+neo4j
+rdflib
+beautifulsoup4
+lxml
+pypdf
+langchain
+langchain-chroma
+langchain-ollama
+langchain-community
+pydantic
+
+# additional depenndencies from debugginng
+python-multipart
